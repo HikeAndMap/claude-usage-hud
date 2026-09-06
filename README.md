@@ -6,6 +6,12 @@ context-window usage plus your account's weekly plan usage, inspired by
 (macOS-only, built on PyObjC/AppKit). This is a from-scratch Windows-native
 reimplementation in C#/.NET WinForms - not a port of that codebase.
 
+## Download
+
+**[⬇ Download the latest release](https://github.com/HikeAndMap/claude-usage-hud/releases/latest)**
+— grab `ClaudeUsageHUD.exe` and run it directly. It's a self-contained build, so
+no .NET runtime install is required.
+
 ## How it works
 
 **Context window usage**: Claude Code writes one JSON object per line to
@@ -44,7 +50,7 @@ app. Right-click the tray icon → "Set context window size..." to set it (defau
 to 200,000; the desktop app's own status popup can tell you the real number for
 your current plan/model, e.g. 1,000,000 for a 1M-context Sonnet 5 session).
 
-## Running it
+## Running from source
 
 ```
 dotnet run --project ClaudeUsageHUD
