@@ -16,7 +16,7 @@ public static class PlanUsageReader
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "plan-usage-history.json");
 
     /// <summary>Returns the most recent weekly usage percentage (0-100), or null if the file is missing, empty,
-    /// or its last sample has no "sd" figure yet.</summary>
+    /// or every sample in it has no "sd" figure yet.</summary>
     public static int? ReadLatestWeeklyPercent()
     {
         if (!File.Exists(FilePath)) return null;
@@ -26,12 +26,20 @@ public static class PlanUsageReader
         using JsonDocument doc = JsonDocument.Parse(stream);
 
         if (!doc.RootElement.TryGetProperty("samples", out JsonElement samples)) return null;
-        if (samples.ValueKind != JsonValueKind.Array || samples.GetArrayLength() == 0) return null;
+        if (samples.ValueKind != JsonValueKind.Array) return null;
 
-        JsonElement last = samples[samples.GetArrayLength() - 1];
-        if (!last.TryGetProperty("u", out JsonElement usage)) return null;
-        if (!usage.TryGetProperty("sd", out JsonElement sd)) return null;
+        // Walk backwards - the desktop app appends a new sample's timestamp before it fills in that sample's
+        // "u" figures a tick later, so the very last entry can momentarily have an empty "u": {} with no "sd"
+        // yet. The most recent entry that actually HAS one is still the right reading to show.
+        for (int i = samples.GetArrayLength() - 1; i >= 0; i--)
+        {
+            JsonElement sample = samples[i];
+            if (sample.TryGetProperty("u", out JsonElement usage) && usage.TryGetProperty("sd", out JsonElement sd))
+            {
+                return sd.GetInt32();
+            }
+        }
 
-        return sd.GetInt32();
+        return null;
     }
 }
