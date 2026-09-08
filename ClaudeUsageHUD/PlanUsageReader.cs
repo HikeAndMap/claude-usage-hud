@@ -27,14 +27,26 @@ public static class PlanUsageReader
     /// or every sample in it has no "sd" figure yet.</summary>
     public static int? ReadLatestWeeklyPercent()
     {
-        if (!File.Exists(FilePath)) return null;
+        if (!File.Exists(FilePath))
+        {
+            Log("File.Exists returned false for " + FilePath);
+            return null;
+        }
 
         using var stream = new FileStream(FilePath, FileMode.Open, FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete);
         using JsonDocument doc = JsonDocument.Parse(stream);
 
-        if (!doc.RootElement.TryGetProperty("samples", out JsonElement samples)) return null;
-        if (samples.ValueKind != JsonValueKind.Array) return null;
+        if (!doc.RootElement.TryGetProperty("samples", out JsonElement samples))
+        {
+            Log("no \"samples\" property on root; raw root=" + Truncate(doc.RootElement.GetRawText(), 500));
+            return null;
+        }
+        if (samples.ValueKind != JsonValueKind.Array)
+        {
+            Log($"\"samples\" is not an array (ValueKind={samples.ValueKind})");
+            return null;
+        }
 
         // Walk backwards - the desktop app appends a new sample's timestamp before it fills in that sample's
         // "u" figures a tick later, so the very last entry can momentarily have an empty "u": {} with no "sd"
@@ -49,31 +61,29 @@ public static class PlanUsageReader
         }
 
         // Every sample in the file lacks "sd" - this shouldn't happen once the account has any weekly usage
-        // recorded at all (2026-09-08: seen once with a live file that in fact DID have "sd" throughout,
-        // meaning whatever the running process read here differed from the file on disk - never reproduced
-        // on demand, cleared by an app restart). Log what we actually saw so a recurrence is diagnosable
-        // without needing to catch the HUD showing "n/a" live again.
-        LogNotFound(samples);
+        // recorded at all. Log what we actually saw so a recurrence is diagnosable without needing to catch
+        // the HUD showing "n/a" live again.
+        int count = samples.GetArrayLength();
+        int tailStart = Math.Max(0, count - 5);
+        var tail = new List<string> { $"no sample with \"sd\" found; array length={count}" };
+        for (int i = tailStart; i < count; i++)
+        {
+            tail.Add($"  [{i}] {samples[i].GetRawText()}");
+        }
+        Log(string.Join(Environment.NewLine, tail));
         return null;
     }
 
-    private static void LogNotFound(JsonElement samples)
+    private static string Truncate(string s, int maxLen) => s.Length <= maxLen ? s : s[..maxLen] + "...";
+
+    /// <summary>Best-effort append to %AppData%\ClaudeUsageHUD\weekly-diagnostic.log - covers every "why did
+    /// ReadLatestWeeklyPercent return null" branch above, since the very first attempt at diagnosing this
+    /// (2026-09-08) only instrumented the last branch and the very next recurrence (2026-09-09) turned out to
+    /// hit one of the earlier ones instead, leaving no trace of which.</summary>
+    private static void Log(string message)
     {
         try
         {
-            int count = samples.GetArrayLength();
-            int tailStart = Math.Max(0, count - 5);
-
-            var lines = new List<string>
-            {
-                $"[{DateTimeOffset.UtcNow:O}] no sample with \"sd\" found; array length={count}",
-            };
-            for (int i = tailStart; i < count; i++)
-            {
-                lines.Add($"  [{i}] {samples[i].GetRawText()}");
-            }
-            lines.Add("");
-
             string dir = Path.GetDirectoryName(DiagnosticLogPath)!;
             Directory.CreateDirectory(dir);
 
@@ -82,7 +92,7 @@ public static class PlanUsageReader
                 File.Delete(DiagnosticLogPath);
             }
 
-            File.AppendAllLines(DiagnosticLogPath, lines);
+            File.AppendAllText(DiagnosticLogPath, $"[{DateTimeOffset.UtcNow:O}] {message}{Environment.NewLine}");
         }
         catch (Exception)
         {
