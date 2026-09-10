@@ -27,14 +27,15 @@ public static class PlanUsageReader
     /// or every sample in it has no "sd" figure yet.</summary>
     public static int? ReadLatestWeeklyPercent()
     {
-        if (!File.Exists(FilePath))
-        {
-            Log("File.Exists returned false for " + FilePath);
-            return null;
-        }
+        // Deliberately no File.Exists() pre-check: it swallows EVERY exception (permission issues, sharing
+        // violations, transient I/O errors - anything, not just "genuinely missing") and reports them all as
+        // false, indistinguishable from a real missing file. That hid the actual cause of a persistent "n/a"
+        // seen 2026-09-08 through 2026-09-10 (always cleared by restarting the HUD, never by anything changing
+        // on disk). Opening the file directly and inspecting the real exception type instead tells us, next
+        // time, whether this is genuinely FileNotFoundException or something else File.Exists was masking.
+        using FileStream? stream = TryOpen();
+        if (stream == null) return null;
 
-        using var stream = new FileStream(FilePath, FileMode.Open, FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete);
         using JsonDocument doc = JsonDocument.Parse(stream);
 
         if (!doc.RootElement.TryGetProperty("samples", out JsonElement samples))
@@ -72,6 +73,23 @@ public static class PlanUsageReader
         }
         Log(string.Join(Environment.NewLine, tail));
         return null;
+    }
+
+    private static FileStream? TryOpen()
+    {
+        try
+        {
+            return new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log($"open failed with {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
     }
 
     private static string Truncate(string s, int maxLen) => s.Length <= maxLen ? s : s[..maxLen] + "...";
