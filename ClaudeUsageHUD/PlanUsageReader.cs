@@ -83,6 +83,25 @@ public static class PlanUsageReader
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
+            // 2026-09-11: previously treated as the boring "genuinely missing, nothing to see" case and left
+            // unlogged - wrong. Caught this exact exception firing from a long-running HUD process while a
+            // completely separate, freshly-started process opened the very same path successfully at the same
+            // moment. So this is NOT necessarily "missing" - log everything we can cheaply compare against an
+            // external view of the same path, so a recurrence shows whether it's genuinely gone or another
+            // instance of one process seeing something different from reality.
+            string parentDir = Path.GetDirectoryName(FilePath)!;
+            string listing;
+            try
+            {
+                listing = string.Join(", ", Directory.EnumerateFileSystemEntries(parentDir).Select(Path.GetFileName));
+            }
+            catch (Exception listEx)
+            {
+                listing = $"<could not list {parentDir}: {listEx.GetType().Name}: {listEx.Message}>";
+            }
+            Log($"{ex.GetType().Name} opening {FilePath} (HResult={ex.HResult}): {ex.Message} | "
+                + $"File.Exists={File.Exists(FilePath)} Directory.Exists(parent)={Directory.Exists(parentDir)} | "
+                + $"parent dir contents: {listing}");
             return null;
         }
         catch (Exception ex)
