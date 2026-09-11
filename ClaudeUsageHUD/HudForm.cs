@@ -2,12 +2,11 @@ namespace ClaudeUsageHUD;
 
 /// <summary>
 /// The floating HUD itself - a small, borderless, always-on-top, draggable panel showing the active Claude
-/// Code session's context-window usage (percentage + raw token count) plus the account's weekly plan-usage
-/// percentage, refreshed on a timer by re-reading the active session's transcript tail (see
-/// SessionUsageReader) and the desktop app's own plan-usage history file (see PlanUsageReader). The rolling
-/// 5-hour figure is deliberately omitted - the Claude desktop app already surfaces that one itself, so showing
-/// it here too would just be redundant (see project discussion, 2026-09-06). Colors mirror the same 70%/90%
-/// yellow/red thresholds the user's own statusline.ps1 script already uses, for a consistent feel.
+/// Code session's context-window usage (percentage + raw token count) plus the account's weekly and rolling
+/// 5-hour plan-usage percentages, refreshed on a timer by re-reading the active session's transcript tail (see
+/// SessionUsageReader) and the desktop app's own plan-usage history file (see PlanUsageReader). Colors mirror
+/// the same 70%/90% yellow/red thresholds the user's own statusline.ps1 script already uses, for a consistent
+/// feel.
 /// </summary>
 public sealed class HudForm : Form
 {
@@ -19,6 +18,7 @@ public sealed class HudForm : Form
     private readonly System.Windows.Forms.Timer _pollTimer;
     private readonly Label _label;
     private readonly Label _weeklyLabel;
+    private readonly Label _fiveHourLabel;
 
     private Point _dragStartScreen;
     private Point _dragStartWindow;
@@ -33,7 +33,7 @@ public sealed class HudForm : Form
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
         BackColor = Color.FromArgb(30, 30, 30);
-        Size = new Size(200, 56);
+        Size = new Size(200, 80);
 
         _label = new Label
         {
@@ -46,22 +46,35 @@ public sealed class HudForm : Form
         };
         _weeklyLabel = new Label
         {
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            Height = 24,
             TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Color.LightGray,
             Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
             Text = "Weekly: ...",
         };
+        _fiveHourLabel = new Label
+        {
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = Color.LightGray,
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+            Text = "5h: ...",
+        };
+        Controls.Add(_fiveHourLabel);
         Controls.Add(_weeklyLabel);
         Controls.Add(_label);
 
-        // Dragging - a borderless Form has no title bar to grab, so both labels double as one.
+        // Dragging - a borderless Form has no title bar to grab, so all three labels double as one.
         _label.MouseDown += OnDragStart;
         _label.MouseMove += OnDragMove;
         _label.MouseUp += OnDragEnd;
         _weeklyLabel.MouseDown += OnDragStart;
         _weeklyLabel.MouseMove += OnDragMove;
         _weeklyLabel.MouseUp += OnDragEnd;
+        _fiveHourLabel.MouseDown += OnDragStart;
+        _fiveHourLabel.MouseMove += OnDragMove;
+        _fiveHourLabel.MouseUp += OnDragEnd;
         MouseDown += OnDragStart;
         MouseMove += OnDragMove;
         MouseUp += OnDragEnd;
@@ -163,6 +176,7 @@ public sealed class HudForm : Form
         }
 
         RefreshWeekly();
+        RefreshFiveHour();
     }
 
     /// <summary>Updates the weekly-usage line, isolated from the context-window refresh above so a hiccup
@@ -188,6 +202,43 @@ public sealed class HudForm : Form
             _weeklyLabel.ForeColor = Color.Gray;
             System.Diagnostics.Debug.WriteLine("HudForm.RefreshWeekly failed: " + ex);
         }
+    }
+
+    /// <summary>Updates the rolling-5-hour line, isolated from the other two refreshes for the same reason as
+    /// RefreshWeekly above.</summary>
+    private void RefreshFiveHour()
+    {
+        try
+        {
+            PlanUsageReader.FiveHourUsage? usage = PlanUsageReader.ReadLatestFiveHourUsage();
+            if (usage == null)
+            {
+                _fiveHourLabel.Text = "5h: n/a";
+                _fiveHourLabel.ForeColor = Color.Gray;
+                return;
+            }
+
+            string resetSuffix = usage.Value.ResetAt is { } resetAt
+                ? $" ({FormatRemaining(resetAt - DateTimeOffset.UtcNow)})"
+                : "";
+            _fiveHourLabel.Text = $"5h: {usage.Value.Percent}%{resetSuffix}";
+            _fiveHourLabel.ForeColor = ColorForPercent(usage.Value.Percent);
+        }
+        catch (Exception ex)
+        {
+            _fiveHourLabel.Text = "5h: error";
+            _fiveHourLabel.ForeColor = Color.Gray;
+            System.Diagnostics.Debug.WriteLine("HudForm.RefreshFiveHour failed: " + ex);
+        }
+    }
+
+    private static string FormatRemaining(TimeSpan remaining)
+    {
+        if (remaining <= TimeSpan.Zero) return "resetting";
+        int totalMinutes = (int)Math.Ceiling(remaining.TotalMinutes);
+        int hours = totalMinutes / 60;
+        int minutes = totalMinutes % 60;
+        return hours > 0 ? $"{hours}h {minutes}m" : $"{minutes}m";
     }
 
     private static string FormatTokenCount(long tokens) =>

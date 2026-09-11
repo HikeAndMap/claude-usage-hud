@@ -4,11 +4,11 @@ namespace ClaudeUsageHUD;
 
 /// <summary>
 /// Reads the Claude desktop app's own plan-usage history file (%AppData%\Claude\plan-usage-history.json) to get
-/// the current weekly usage percentage - the same data backing the desktop app's built-in usage indicator, just
-/// with the rolling 5-hour figure ignored since that one's already visible elsewhere in the desktop app itself
-/// (see project discussion, 2026-09-06). The file is a JSON object with a "samples" array, each entry shaped
-/// like {"t": epochMs, "org": orgId, "u": {"fh": five-hour %, "sd": seven-day/weekly %}}, appended roughly every
-/// 15 minutes; the last entry is the current reading.
+/// the current weekly and rolling-5-hour usage percentages - the same data backing the desktop app's built-in
+/// usage indicator. The file is a JSON object with a "samples" array, each entry shaped like {"t": epochMs,
+/// "org": orgId, "u": {"fh": five-hour %, "sd": seven-day/weekly %}}, appended roughly every 15 minutes; the
+/// last entry is the current reading. No reset timestamps are stored anywhere in the file (see
+/// <see cref="ReadLatestFiveHourUsage"/> for how the 5-hour reset time is estimated instead).
 /// </summary>
 public static class PlanUsageReader
 {
@@ -73,6 +73,65 @@ public static class PlanUsageReader
         }
         Log(string.Join(Environment.NewLine, tail));
         return null;
+    }
+
+    public readonly record struct FiveHourUsage(int Percent, DateTimeOffset? ResetAt);
+
+    /// <summary>Returns the current rolling-5-hour usage percentage plus an estimate of when it resets, or null
+    /// if the file has no "fh" figure at all yet. Unlike the weekly figure, no reset timestamp is stored in the
+    /// file - Anthropic's 5-hour window resets exactly 5 hours after it started, and empirically (checked
+    /// across 2026-08-25 through 2026-09-11) the sample immediately after that start consistently lands within
+    /// a few seconds of the true reset moment, often exact to the second. So the start is estimated as the most
+    /// recent point "fh" dropped sharply (from one sample to the next) below the current run, and the reset
+    /// time is that sample's timestamp + 5 hours. If that projected time has already passed - e.g. after a long
+    /// gap with no polling, where we never actually captured the moment of the drop - there isn't enough
+    /// information to know the real window start, so no reset estimate is returned rather than guessing.</summary>
+    public static FiveHourUsage? ReadLatestFiveHourUsage()
+    {
+        using FileStream? stream = TryOpen();
+        if (stream == null) return null;
+
+        using JsonDocument doc = JsonDocument.Parse(stream);
+        if (!doc.RootElement.TryGetProperty("samples", out JsonElement samples)) return null;
+        if (samples.ValueKind != JsonValueKind.Array) return null;
+
+        int count = samples.GetArrayLength();
+
+        int? percent = null;
+        int percentIndex = -1;
+        for (int i = count - 1; i >= 0; i--)
+        {
+            if (samples[i].TryGetProperty("u", out JsonElement usage) && usage.TryGetProperty("fh", out JsonElement fh))
+            {
+                percent = fh.GetInt32();
+                percentIndex = i;
+                break;
+            }
+        }
+        if (percent == null) return null;
+
+        DateTimeOffset? resetAt = null;
+        int? prevFh = null;
+        for (int i = 0; i <= percentIndex; i++)
+        {
+            if (!samples[i].TryGetProperty("u", out JsonElement u) || !u.TryGetProperty("fh", out JsonElement fhEl))
+            {
+                continue;
+            }
+            int fhVal = fhEl.GetInt32();
+            if (prevFh.HasValue && fhVal < prevFh.Value - 30 && samples[i].TryGetProperty("t", out JsonElement tEl))
+            {
+                resetAt = DateTimeOffset.FromUnixTimeMilliseconds(tEl.GetInt64()).AddHours(5);
+            }
+            prevFh = fhVal;
+        }
+
+        if (resetAt.HasValue && resetAt.Value <= DateTimeOffset.UtcNow)
+        {
+            resetAt = null;
+        }
+
+        return new FiveHourUsage(percent.Value, resetAt);
     }
 
     private static FileStream? TryOpen()
