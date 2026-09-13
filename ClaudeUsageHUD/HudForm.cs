@@ -14,12 +14,17 @@ public sealed class HudForm : Form
     private const int YellowThresholdPct = 70;
     private const int RedThresholdPct = 90;
 
-    // How long weekly/5h reads have to fail in a row - after previously succeeding this session - before we
-    // conclude the process itself is wedged (see RefreshWeekly/RefreshFiveHour's isolation comment and
-    // PlanUsageReader's TryOpen: this has recurred repeatedly, always tied to one specific long-running
-    // process, always cleared instantly by an external restart, never explained by anything wrong with the
-    // data on disk) and restart ourselves rather than needing a manual restart every time.
-    private const int PlanUsageStuckThresholdTicks = 30; // ~2 minutes at PollIntervalMs
+    // How long weekly/5h reads have to fail in a row before we conclude the process itself is wedged (see
+    // RefreshWeekly/RefreshFiveHour's isolation comment and PlanUsageReader's TryOpen: this has recurred
+    // repeatedly, always tied to one specific long-running process, always cleared instantly by an external
+    // restart, never explained by anything wrong with the data on disk) and restart ourselves rather than
+    // needing a manual restart every time. 2026-09-13: originally this only started counting AFTER a prior
+    // success, specifically to avoid misfiring during the legitimate "Claude desktop hasn't created the file
+    // yet" window right after boot - but then caught an occurrence that was wedged from the very first tick
+    // (a fresh reboot, HUD launched from Startup, stuck for 40+ minutes straight), which that gate silently
+    // never even started counting. Counting from process start unconditionally instead, with the threshold
+    // long enough (3 minutes) to comfortably outlast Claude desktop's own normal startup-to-first-poll delay.
+    private const int PlanUsageStuckThresholdTicks = 45; // ~3 minutes at PollIntervalMs
     private static readonly TimeSpan SelfRestartCooldown = TimeSpan.FromMinutes(5);
     private static readonly string SelfRestartMarkerPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClaudeUsageHUD", "last-self-restart.txt");
@@ -34,10 +39,6 @@ public sealed class HudForm : Form
     private Point _dragStartWindow;
     private bool _dragging;
 
-    // Only true once weekly or 5h has read successfully at least once this process's life - guards against
-    // self-restarting during the legitimate "Claude desktop hasn't created the file yet" window right after
-    // boot, which should never be mistaken for the wedged-process case above.
-    private bool _everHadValidPlanUsage;
     private int _consecutivePlanUsageFailures;
 
     public HudForm(HudSettings settings)
@@ -254,30 +255,25 @@ public sealed class HudForm : Form
         }
     }
 
-    /// <summary>Tracks whether weekly/5h reads are stuck failing despite having worked before this session,
-    /// and restarts the whole HUD process if so - see the class-level comment on PlanUsageStuckThresholdTicks
-    /// for why a restart (rather than any code fix here) is the actual remedy that's worked every time this
-    /// has been observed.</summary>
+    /// <summary>Tracks whether weekly/5h reads are stuck failing, and restarts the whole HUD process if so -
+    /// see the class-level comment on PlanUsageStuckThresholdTicks for why a restart (rather than any code fix
+    /// here) is the actual remedy that's worked every time this has been observed.</summary>
     private void CheckSelfHeal(bool thisTickSucceeded)
     {
         if (thisTickSucceeded)
         {
-            _everHadValidPlanUsage = true;
             _consecutivePlanUsageFailures = 0;
             return;
         }
-
-        if (!_everHadValidPlanUsage) return;
 
         _consecutivePlanUsageFailures++;
         if (_consecutivePlanUsageFailures < PlanUsageStuckThresholdTicks) return;
         if (!SelfRestartCooldownElapsed()) return;
 
         PlanUsageReader.LogDiagnostic(
-            $"Self-restarting HUD - weekly/5h reads failed for {_consecutivePlanUsageFailures * PollIntervalMs / 1000}s "
-            + "straight despite having worked earlier this session.");
+            $"Self-restarting HUD - weekly/5h reads failed for {_consecutivePlanUsageFailures * PollIntervalMs / 1000}s straight.");
         RecordSelfRestartTime();
-        SelfRestart();
+        RestartApplication();
     }
 
     private static bool SelfRestartCooldownElapsed()
@@ -309,7 +305,9 @@ public sealed class HudForm : Form
         }
     }
 
-    private static void SelfRestart()
+    /// <summary>Relaunches the exe as a new process and exits this one - used both by the auto-detected
+    /// self-heal above and by the tray icon's manual "Restart" menu item.</summary>
+    internal static void RestartApplication()
     {
         try
         {

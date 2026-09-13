@@ -28,6 +28,13 @@ public sealed class TrayAppContext : ApplicationContext
 
         menu.Items.Add(new ToolStripSeparator());
 
+        // Manual escape hatch for the same wedged-process condition HudForm's self-heal detects on its own
+        // (see PlanUsageStuckThresholdTicks) - useful the moment you notice "n/a" without waiting out the
+        // 3-minute detection window, and as a general "just restart it" button for anything else off.
+        ToolStripMenuItem restartItem = new("Restart");
+        restartItem.Click += (s, e) => RestartApp();
+        menu.Items.Add(restartItem);
+
         ToolStripMenuItem exitItem = new("Exit");
         exitItem.Click += (s, e) => ExitApp();
         menu.Items.Add(exitItem);
@@ -55,6 +62,12 @@ public sealed class TrayAppContext : ApplicationContext
             _settings.Save();
             _hud.Refresh_();
         }
+    }
+
+    private void RestartApp()
+    {
+        _trayIcon.Visible = false;
+        HudForm.RestartApplication();
     }
 
     private void ExitApp()
