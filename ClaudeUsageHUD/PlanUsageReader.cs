@@ -40,12 +40,12 @@ public static class PlanUsageReader
 
         if (!doc.RootElement.TryGetProperty("samples", out JsonElement samples))
         {
-            Log("no \"samples\" property on root; raw root=" + Truncate(doc.RootElement.GetRawText(), 500));
+            LogDiagnostic("no \"samples\" property on root; raw root=" + Truncate(doc.RootElement.GetRawText(), 500));
             return null;
         }
         if (samples.ValueKind != JsonValueKind.Array)
         {
-            Log($"\"samples\" is not an array (ValueKind={samples.ValueKind})");
+            LogDiagnostic($"\"samples\" is not an array (ValueKind={samples.ValueKind})");
             return null;
         }
 
@@ -71,7 +71,7 @@ public static class PlanUsageReader
         {
             tail.Add($"  [{i}] {samples[i].GetRawText()}");
         }
-        Log(string.Join(Environment.NewLine, tail));
+        LogDiagnostic(string.Join(Environment.NewLine, tail));
         return null;
     }
 
@@ -158,14 +158,14 @@ public static class PlanUsageReader
             {
                 listing = $"<could not list {parentDir}: {listEx.GetType().Name}: {listEx.Message}>";
             }
-            Log($"{ex.GetType().Name} opening {FilePath} (HResult={ex.HResult}): {ex.Message} | "
+            LogDiagnostic($"{ex.GetType().Name} opening {FilePath} (HResult={ex.HResult}): {ex.Message} | "
                 + $"File.Exists={File.Exists(FilePath)} Directory.Exists(parent)={Directory.Exists(parentDir)} | "
                 + $"parent dir contents: {listing}");
             return null;
         }
         catch (Exception ex)
         {
-            Log($"open failed with {ex.GetType().Name}: {ex.Message}");
+            LogDiagnostic($"open failed with {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }
@@ -176,7 +176,7 @@ public static class PlanUsageReader
     /// ReadLatestWeeklyPercent return null" branch above, since the very first attempt at diagnosing this
     /// (2026-09-08) only instrumented the last branch and the very next recurrence (2026-09-09) turned out to
     /// hit one of the earlier ones instead, leaving no trace of which.</summary>
-    private static void Log(string message)
+    internal static void LogDiagnostic(string message)
     {
         try
         {
