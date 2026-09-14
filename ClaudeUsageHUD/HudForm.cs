@@ -110,13 +110,27 @@ public sealed class HudForm : Form
 
     private void PositionInitialLocation()
     {
-        if (_settings.WindowX >= 0 && _settings.WindowY >= 0)
+        // -1 is HudSettings' sentinel for "never saved" (its default) - NOT a bound on valid coordinates.
+        // A real saved position can legitimately be negative: this machine's actual multi-monitor layout has
+        // secondary screens positioned to the left of/above the primary one, so a HUD dragged there saves
+        // e.g. (-285, 913). The old "WindowX >= 0 && WindowY >= 0" check treated any such position as
+        // invalid and silently reset to the default corner on every single launch - the HUD never actually
+        // "remembered" its spot whenever it happened to live on a negative-offset monitor.
+        if (_settings.WindowX != -1 && _settings.WindowY != -1)
         {
-            Location = new Point(_settings.WindowX, _settings.WindowY);
-            return;
+            var saved = new Point(_settings.WindowX, _settings.WindowY);
+            // Still fall back to the default below if no currently-connected screen could show this spot -
+            // e.g. a monitor was disconnected since the position was saved - rather than parking the HUD
+            // somewhere permanently unreachable.
+            if (Screen.AllScreens.Any(s => s.Bounds.IntersectsWith(new Rectangle(saved, Size))))
+            {
+                Location = saved;
+                return;
+            }
         }
 
-        // First-ever launch - default to the bottom-right corner, just above the tray, per explicit user
+        // First-ever launch (or the saved spot is no longer reachable) - default to the bottom-right corner,
+        // just above the tray, per explicit user
         // preference (2026-09-06). WorkingArea already excludes the taskbar itself, so anchoring off its
         // Bottom/Right edges naturally sits the HUD directly above the tray icons regardless of taskbar
         // size/DPI, without needing to special-case the taskbar's own height. Pushed up by an extra half of
