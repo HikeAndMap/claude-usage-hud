@@ -31,12 +31,17 @@ The HUD:
    percentage, color-coded green/yellow/red at the same 70%/90% thresholds as a
    typical statusline script.
 
-**Weekly plan usage**: the Claude desktop app already tracks this itself, locally,
-in `%AppData%\Claude\plan-usage-history.json` - a running log of periodic samples,
-each with a five-hour (`fh`) and seven-day/weekly (`sd`) usage percentage. The HUD
-just reads the last sample's `sd` value and color-codes it the same way as the
-context line. The rolling five-hour figure is deliberately not shown here since the
-desktop app already surfaces that one in its own UI.
+**Weekly and rolling 5-hour usage**: the Claude desktop app already tracks both
+itself, locally, in a running log of periodic samples, each with a five-hour
+(`fh`) and seven-day/weekly (`sd`) usage percentage. The HUD reads the last
+sample's values and color-codes them the same way as the context line. Claude
+desktop is installed as an MSIX-packaged app, so its usage-history file doesn't
+live at the "traditional" `%AppData%\Claude\plan-usage-history.json` path -
+Windows virtualizes that into a per-package location that isn't reliably visible
+outside Claude's own process, so the HUD resolves and reads the real underlying
+file directly. No reset time is stored anywhere in the file for the 5-hour figure,
+so the HUD estimates it from the sample history instead (it resets exactly 5 hours
+after the most recent sharp drop in `fh`).
 
 No private API, no stored credentials, no reverse-engineering required for either
 figure - just files Claude (CLI and desktop) already writes on its own.
@@ -59,11 +64,13 @@ dotnet run --project ClaudeUsageHUD
 Or build and run the .exe directly from `ClaudeUsageHUD\bin\Debug\net10.0-windows\`.
 
 - Tray icon (small orange circle, "C") → right-click for the menu: Show/Hide HUD,
-  Set context window size, Exit.
-- The HUD itself is a small borderless panel showing two lines - context-window
-  usage on top, weekly plan usage below - draggable by clicking anywhere on it;
-  its position is remembered (`%AppData%\ClaudeUsageHUD\settings.json`) between
-  launches.
+  Set context window size, Restart, Exit.
+- The HUD itself is a small borderless panel showing three lines - context-window
+  usage, weekly plan usage, and rolling 5-hour usage - draggable by clicking
+  anywhere on it; its position is remembered (`%AppData%\ClaudeUsageHUD\settings.json`)
+  between launches, including across multiple monitors.
+- If weekly/5h usage ever gets stuck reading (rare, and generally self-heals
+  within a few minutes on its own), the tray menu's "Restart" is the fastest fix.
 
 ## Auto-start with Windows
 
