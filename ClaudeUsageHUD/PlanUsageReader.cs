@@ -3,17 +3,55 @@ using System.Text.Json;
 namespace ClaudeUsageHUD;
 
 /// <summary>
-/// Reads the Claude desktop app's own plan-usage history file (%AppData%\Claude\plan-usage-history.json) to get
-/// the current weekly and rolling-5-hour usage percentages - the same data backing the desktop app's built-in
-/// usage indicator. The file is a JSON object with a "samples" array, each entry shaped like {"t": epochMs,
-/// "org": orgId, "u": {"fh": five-hour %, "sd": seven-day/weekly %}}, appended roughly every 15 minutes; the
-/// last entry is the current reading. No reset timestamps are stored anywhere in the file (see
-/// <see cref="ReadLatestFiveHourUsage"/> for how the 5-hour reset time is estimated instead).
+/// Reads the Claude desktop app's own plan-usage history file to get the current weekly and rolling-5-hour
+/// usage percentages - the same data backing the desktop app's built-in usage indicator. The file is a JSON
+/// object with a "samples" array, each entry shaped like {"t": epochMs, "org": orgId, "u": {"fh": five-hour %,
+/// "sd": seven-day/weekly %}}, appended roughly every 15 minutes; the last entry is the current reading. No
+/// reset timestamps are stored anywhere in the file (see <see cref="ReadLatestFiveHourUsage"/> for how the
+/// 5-hour reset time is estimated instead).
 /// </summary>
 public static class PlanUsageReader
 {
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "plan-usage-history.json");
+    private static readonly string FilePath = ResolveFilePath();
+
+    /// <summary>
+    /// Claude desktop is installed as an MSIX-packaged app, so %AppData%\Roaming\Claude isn't a real folder -
+    /// it's a Windows compatibility redirect to an isolated per-package location. Root-caused via a Process
+    /// Monitor trace (2026-09-14) after weeks of "n/a" recurring with no explanation: CreateFile calls through
+    /// that redirect path intermittently returned NAME NOT FOUND / PATH NOT FOUND for this specific process,
+    /// side by side with an identical call on a sibling folder (this app's own, not MSIX-redirected)
+    /// succeeding at the exact same instant - while every external check (a completely separate process) read
+    /// the real data on disk without issue the entire time. That redirect is apparently only reliably honored
+    /// for processes Windows considers part of the same app container, not for an unrelated tool like this
+    /// one - explaining every prior "it's stuck" incident, none of which were ever a code bug, a data problem,
+    /// or (despite substantial effort chasing it) antivirus. Read the real, physical location directly
+    /// instead, bypassing the redirect entirely.
+    /// </summary>
+    private static string ResolveFilePath()
+    {
+        string traditional = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "plan-usage-history.json");
+
+        try
+        {
+            string packagesRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+            if (Directory.Exists(packagesRoot))
+            {
+                foreach (string packageDir in Directory.EnumerateDirectories(packagesRoot, "Claude_*"))
+                {
+                    string candidate = Path.Combine(packageDir, "LocalCache", "Roaming", "Claude", "plan-usage-history.json");
+                    if (File.Exists(candidate)) return candidate;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Best effort - fall back to the traditional (possibly redirected) path below.
+        }
+
+        return traditional;
+    }
 
     // Where we dump forensic detail on the "not found" path below - kept tiny and separate from the main
     // settings file (see HudSettings) so a burst of these never touches user-facing state.
