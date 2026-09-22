@@ -120,10 +120,14 @@ public static class PlanUsageReader
     /// file - Anthropic's 5-hour window resets exactly 5 hours after it started, and empirically (checked
     /// across 2026-08-25 through 2026-09-11) the sample immediately after that start consistently lands within
     /// a few seconds of the true reset moment, often exact to the second. So the start is estimated as the most
-    /// recent point "fh" dropped sharply (from one sample to the next) below the current run, and the reset
-    /// time is that sample's timestamp + 5 hours. If that projected time has already passed - e.g. after a long
-    /// gap with no polling, where we never actually captured the moment of the drop - there isn't enough
-    /// information to know the real window start, so no reset estimate is returned rather than guessing.</summary>
+    /// recent point "fh" dropped (from one sample to the next) below the current run, and the reset time is that
+    /// sample's timestamp + 5 hours. Any decrease at all counts - "fh" only climbs within a window, so even a
+    /// 1-point drop means a reset happened; a >30-point threshold used until 2026-09-23 missed resets that
+    /// occurred while usage was still low (e.g. a window that only reached 21% before resetting to 0%), leaving
+    /// the 5h line with no time shown at all because the stale estimate from the prior cycle had already
+    /// expired. If the projected time has already passed - e.g. after a long gap with no polling, where we never
+    /// actually captured the moment of the drop - there isn't enough information to know the real window start,
+    /// so no reset estimate is returned rather than guessing.</summary>
     public static FiveHourUsage? ReadLatestFiveHourUsage()
     {
         using FileStream? stream = TryOpen();
@@ -157,7 +161,7 @@ public static class PlanUsageReader
                 continue;
             }
             int fhVal = fhEl.GetInt32();
-            if (prevFh.HasValue && fhVal < prevFh.Value - 30 && samples[i].TryGetProperty("t", out JsonElement tEl))
+            if (prevFh.HasValue && fhVal < prevFh.Value && samples[i].TryGetProperty("t", out JsonElement tEl))
             {
                 resetAt = DateTimeOffset.FromUnixTimeMilliseconds(tEl.GetInt64()).AddHours(5);
             }
