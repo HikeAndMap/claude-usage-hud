@@ -43,8 +43,23 @@ file directly. No reset time is stored anywhere in the file for the 5-hour figur
 so the HUD estimates it from the sample history instead (it resets exactly 5 hours
 after the most recent sharp drop in `fh`).
 
-No private API, no stored credentials, no reverse-engineering required for either
-figure - just files Claude (CLI and desktop) already writes on its own.
+**Live usage (recommended)**: since around October 2026 the desktop app no longer
+keeps that file up to date (it only seems to write a sample at launch), so the
+file-based figures go stale - the HUD then shows them in gray with their age, e.g.
+`Weekly: 0% (5h old)`. For live numbers, right-click the tray icon → **Sign in for
+live usage...** and approve the request in your browser once. The HUD then asks
+Anthropic's usage endpoint for your weekly and 5-hour usage (with the real 5-hour
+reset time) once a minute, and falls back to the file reader if that fails.
+
+The sign-in is the HUD's own OAuth login (the same flow Claude Code uses, with the
+`user:profile` scope the usage endpoint requires). Its tokens are stored only in
+`%AppData%\ClaudeUsageHUD\hud-login.bin`, encrypted for your Windows account, and
+renewed automatically; the HUD never reads or writes Claude Code's or the desktop
+app's own credential stores. The endpoint and client id are undocumented, so this
+could break if Anthropic changes them - failures are logged (never with tokens) to
+`%AppData%\ClaudeUsageHUD\weekly-diagnostic.log`, and hovering the HUD shows the
+current live-usage status. Without signing in, nothing is stored and the HUD works
+from local files only.
 
 ## Why the context-window size is a setting, not auto-detected
 
@@ -64,7 +79,8 @@ dotnet run --project ClaudeUsageHUD
 Or build and run the .exe directly from `ClaudeUsageHUD\bin\Debug\net10.0-windows\`.
 
 - Tray icon (small orange circle, "C") → right-click for the menu: Show/Hide HUD,
-  Set context window size, Restart, Exit.
+  Set context window size, Sign in for live usage, Set usage token (a manual
+  fallback), Restart, Exit.
 - The HUD itself is a small borderless panel showing three lines - context-window
   usage, weekly plan usage, and rolling 5-hour usage - draggable by clicking
   anywhere on it; its position is remembered (`%AppData%\ClaudeUsageHUD\settings.json`)
