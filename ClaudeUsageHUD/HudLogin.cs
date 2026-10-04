@@ -72,7 +72,9 @@ public static class HudLogin
         {
             string verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
             string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-            string state = Base64Url(RandomNumberGenerator.GetBytes(16));
+            // 32 bytes like Claude Code (43 chars) - an earlier 16-byte (22-char) state was one of the few
+            // differences left from its authorize URL while the page still answered "invalid request format".
+            string state = Base64Url(RandomNumberGenerator.GetBytes(32));
 
             int port = FreePort();
             string redirect = $"http://localhost:{port}/callback";
