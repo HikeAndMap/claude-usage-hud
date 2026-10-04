@@ -41,6 +41,17 @@ public sealed class HudForm : Form
 
     private int _consecutivePlanUsageFailures;
 
+    // Live usage via OAuthUsageClient (only when the user has saved a token). Polled far slower than the 4s
+    // file poll - it's a network call to a rate-limited, undocumented endpoint. A reading older than
+    // LiveFreshness (several failed polls in a row) is ignored in favor of the file fallback + stale marker.
+    private static readonly TimeSpan LiveFreshness = TimeSpan.FromMinutes(5);
+    private const int LivePollIntervalMs = 60_000;
+    private readonly System.Windows.Forms.Timer _liveTimer;
+    private readonly ToolTip _statusTip = new();
+    private OAuthUsageClient.Reading? _live;
+    private string? _liveError;
+    private bool _liveFetching;
+
     public HudForm(HudSettings settings)
     {
         _settings = settings;
@@ -100,10 +111,15 @@ public sealed class HudForm : Form
         _pollTimer.Tick += (s, e) => Refresh_();
         _pollTimer.Start();
 
-        Load += (s, e) =>
+        _liveTimer = new System.Windows.Forms.Timer { Interval = LivePollIntervalMs };
+        _liveTimer.Tick += async (s, e) => await RefreshLiveUsageAsync();
+        _liveTimer.Start();
+
+        Load += async (s, e) =>
         {
             PositionInitialLocation();
             Refresh_();
+            await RefreshLiveUsageAsync();
         };
         FormClosing += (s, e) => SavePosition();
     }
@@ -211,6 +227,43 @@ public sealed class HudForm : Form
         CheckSelfHeal(weeklyOk || fiveHourOk);
     }
 
+    /// <summary>Fetches live usage if a token is saved, then re-renders the plan lines. Safe to call any time
+    /// (tray menu calls it right after a token change); overlapping calls are dropped.</summary>
+    public async Task RefreshLiveUsageAsync()
+    {
+        if (_liveFetching) return;
+        _liveFetching = true;
+        try
+        {
+            string? token = UsageTokenStore.Load();
+            if (token == null)
+            {
+                _live = null;
+                _liveError = null;
+                _statusTip.SetToolTip(_weeklyLabel, "Live usage: no token set (tray menu > Set usage token...)");
+            }
+            else
+            {
+                (OAuthUsageClient.Reading? reading, string? error) = await OAuthUsageClient.FetchAsync(token);
+                if (reading != null) _live = reading;
+                _liveError = error;
+                _statusTip.SetToolTip(_weeklyLabel, error == null
+                    ? $"Live usage OK (fetched {DateTime.Now:HH:mm:ss})"
+                    : $"Live usage failed: {error}");
+            }
+            _statusTip.SetToolTip(_fiveHourLabel, _statusTip.GetToolTip(_weeklyLabel));
+            RefreshWeekly();
+            RefreshFiveHour();
+        }
+        finally
+        {
+            _liveFetching = false;
+        }
+    }
+
+    private OAuthUsageClient.Reading? FreshLive() =>
+        _live is { } r && DateTimeOffset.UtcNow - r.FetchedAt < LiveFreshness ? r : null;
+
     /// <summary>Updates the weekly-usage line, isolated from the context-window refresh above so a hiccup
     /// reading one file (e.g. the desktop app mid-write to plan-usage-history.json) never blanks the other.
     /// Returns whether the read succeeded, for CheckSelfHeal.</summary>
@@ -218,6 +271,13 @@ public sealed class HudForm : Form
     {
         try
         {
+            if (FreshLive()?.SevenDay is { } liveWeek)
+            {
+                _weeklyLabel.Text = $"Weekly: {liveWeek.Percent}%";
+                _weeklyLabel.ForeColor = ColorForPercent(liveWeek.Percent);
+                return true;
+            }
+
             PlanUsageReader.WeeklyUsage? usage = PlanUsageReader.ReadLatestWeeklyUsage();
             if (usage == null)
             {
@@ -246,6 +306,16 @@ public sealed class HudForm : Form
     {
         try
         {
+            if (FreshLive()?.FiveHour is { } liveFive)
+            {
+                string liveSuffix = liveFive.ResetAt is { } liveReset
+                    ? $" ({FormatRemaining(liveReset - DateTimeOffset.UtcNow)})"
+                    : "";
+                _fiveHourLabel.Text = $"5h: {liveFive.Percent}%{liveSuffix}";
+                _fiveHourLabel.ForeColor = ColorForPercent(liveFive.Percent);
+                return true;
+            }
+
             PlanUsageReader.FiveHourUsage? usage = PlanUsageReader.ReadLatestFiveHourUsage();
             if (usage == null)
             {

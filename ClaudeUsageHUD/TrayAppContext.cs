@@ -26,6 +26,10 @@ public sealed class TrayAppContext : ApplicationContext
         setSizeItem.Click += (s, e) => PromptForContextWindowSize();
         menu.Items.Add(setSizeItem);
 
+        ToolStripMenuItem setTokenItem = new("Set usage token...");
+        setTokenItem.Click += async (s, e) => await PromptForUsageToken();
+        menu.Items.Add(setTokenItem);
+
         menu.Items.Add(new ToolStripSeparator());
 
         // Manual escape hatch for the same wedged-process condition HudForm's self-heal detects on its own
@@ -62,6 +66,16 @@ public sealed class TrayAppContext : ApplicationContext
             _settings.Save();
             _hud.Refresh_();
         }
+    }
+
+    private async Task PromptForUsageToken()
+    {
+        using var prompt = new UsageTokenPrompt(UsageTokenStore.Load() != null);
+        if (prompt.ShowDialog() != DialogResult.OK) return;
+
+        if (prompt.EnteredToken == null) UsageTokenStore.Clear();
+        else UsageTokenStore.Save(prompt.EnteredToken);
+        await _hud.RefreshLiveUsageAsync();
     }
 
     private void RestartApp()
