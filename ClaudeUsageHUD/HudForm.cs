@@ -235,12 +235,12 @@ public sealed class HudForm : Form
         _liveFetching = true;
         try
         {
-            string? token = UsageTokenStore.Resolve(out string source);
+            (string? token, string source) = await UsageTokenStore.ResolveAsync();
             if (token == null)
             {
                 _live = null;
                 _liveError = null;
-                _statusTip.SetToolTip(_weeklyLabel, "Live usage: no valid Claude login found and no token set (tray menu > Set usage token...)");
+                _statusTip.SetToolTip(_weeklyLabel, "Live usage: not signed in (tray menu > Sign in for live usage...)");
             }
             else
             {

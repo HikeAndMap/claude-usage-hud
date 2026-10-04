@@ -26,6 +26,10 @@ public sealed class TrayAppContext : ApplicationContext
         setSizeItem.Click += (s, e) => PromptForContextWindowSize();
         menu.Items.Add(setSizeItem);
 
+        ToolStripMenuItem signInItem = new("Sign in for live usage...");
+        signInItem.Click += async (s, e) => await SignInForLiveUsage();
+        menu.Items.Add(signInItem);
+
         ToolStripMenuItem setTokenItem = new("Set usage token...");
         setTokenItem.Click += async (s, e) => await PromptForUsageToken();
         menu.Items.Add(setTokenItem);
@@ -66,6 +70,17 @@ public sealed class TrayAppContext : ApplicationContext
             _settings.Save();
             _hud.Refresh_();
         }
+    }
+
+    private async Task SignInForLiveUsage()
+    {
+        string? error = await HudLogin.SignInAsync();
+        if (error != null)
+        {
+            MessageBox.Show($"Sign-in failed: {error}", "Claude Usage HUD", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        await _hud.RefreshLiveUsageAsync();
     }
 
     private async Task PromptForUsageToken()

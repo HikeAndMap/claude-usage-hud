@@ -16,6 +16,17 @@ public static class UsageTokenStore
     private static string ClaudeLoginPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", ".credentials.json");
 
+    /// <summary>The HUD's own sign-in (HudLogin - renewed by the HUD, never shared) wins; then the read-only
+    /// fallbacks in <see cref="Resolve"/>.</summary>
+    public static async Task<(string? Token, string Source)> ResolveAsync()
+    {
+        string? own = await HudLogin.GetAccessTokenAsync();
+        if (own != null) return (own, "HUD sign-in");
+
+        string? token = Resolve(out string source);
+        return (token, source);
+    }
+
     /// <summary>Picks the token to call the usage endpoint with: Claude Code's own login first (its token has
     /// the user:profile scope the endpoint requires, which a setup-token one lacks - seen as HTTP 403 on
     /// 2026-10-04), else the token pasted via the tray menu. Read fresh every call because Claude Code renews
