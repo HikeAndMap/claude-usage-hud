@@ -13,6 +13,53 @@ public static class UsageTokenStore
     private static string TokenPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClaudeUsageHUD", "usage-token.bin");
 
+    private static string ClaudeLoginPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", ".credentials.json");
+
+    /// <summary>Picks the token to call the usage endpoint with: Claude Code's own login first (its token has
+    /// the user:profile scope the endpoint requires, which a setup-token one lacks - seen as HTTP 403 on
+    /// 2026-10-04), else the token pasted via the tray menu. Read fresh every call because Claude Code renews
+    /// that file in place; this app only ever READS it - never refreshes the token, since refreshing can rotate
+    /// the refresh token and sign Claude Code itself out. An expired file token is skipped (Claude Code renews
+    /// it the next time it runs) rather than sent to fail. Nothing from the file is ever logged.</summary>
+    public static string? Resolve(out string source)
+    {
+        try
+        {
+            if (File.Exists(ClaudeLoginPath))
+            {
+                using FileStream stream = new(ClaudeLoginPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using System.Text.Json.JsonDocument doc = System.Text.Json.JsonDocument.Parse(stream);
+                if (doc.RootElement.TryGetProperty("claudeAiOauth", out System.Text.Json.JsonElement oauth)
+                    && oauth.TryGetProperty("accessToken", out System.Text.Json.JsonElement tokenEl)
+                    && tokenEl.GetString() is { Length: > 0 } fileToken)
+                {
+                    bool expired = oauth.TryGetProperty("expiresAt", out System.Text.Json.JsonElement exp)
+                        && exp.TryGetInt64(out long expMs)
+                        && DateTimeOffset.FromUnixTimeMilliseconds(expMs) <= DateTimeOffset.UtcNow;
+                    if (!expired)
+                    {
+                        source = "Claude login";
+                        return fileToken;
+                    }
+                    PlanUsageReader.LogDiagnostic("claude login token in credentials file is expired; waiting for Claude Code to renew it");
+                }
+                else
+                {
+                    PlanUsageReader.LogDiagnostic("credentials file has no claudeAiOauth.accessToken");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            PlanUsageReader.LogDiagnostic($"could not read credentials file: {ex.GetType().Name}");
+        }
+
+        string? pasted = Load();
+        source = "pasted token";
+        return pasted;
+    }
+
     public static string? Load()
     {
         try

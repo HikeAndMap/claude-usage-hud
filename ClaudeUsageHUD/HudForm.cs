@@ -235,12 +235,12 @@ public sealed class HudForm : Form
         _liveFetching = true;
         try
         {
-            string? token = UsageTokenStore.Load();
+            string? token = UsageTokenStore.Resolve(out string source);
             if (token == null)
             {
                 _live = null;
                 _liveError = null;
-                _statusTip.SetToolTip(_weeklyLabel, "Live usage: no token set (tray menu > Set usage token...)");
+                _statusTip.SetToolTip(_weeklyLabel, "Live usage: no valid Claude login found and no token set (tray menu > Set usage token...)");
             }
             else
             {
@@ -248,8 +248,8 @@ public sealed class HudForm : Form
                 if (reading != null) _live = reading;
                 _liveError = error;
                 _statusTip.SetToolTip(_weeklyLabel, error == null
-                    ? $"Live usage OK (fetched {DateTime.Now:HH:mm:ss})"
-                    : $"Live usage failed: {error}");
+                    ? $"Live usage OK via {source} (fetched {DateTime.Now:HH:mm:ss})"
+                    : $"Live usage failed via {source}: {error}");
             }
             _statusTip.SetToolTip(_fiveHourLabel, _statusTip.GetToolTip(_weeklyLabel));
             RefreshWeekly();

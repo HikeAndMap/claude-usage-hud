@@ -20,8 +20,8 @@ public sealed class UsageTokenPrompt : Form
 
         var label = new Label
         {
-            Text = "Paste a Claude OAuth token (sk-ant-oat...) so the HUD can fetch live weekly and 5h usage.\n"
-                + "It is stored encrypted for your Windows account only.",
+            Text = "Fallback only: the HUD already uses Claude Code's own login when it's available. Paste an OAuth "
+                + "token with the user:profile scope here to use instead when it isn't. Stored encrypted for your Windows account.",
             Location = new Point(12, 12),
             Size = new Size(396, 48),
         };
