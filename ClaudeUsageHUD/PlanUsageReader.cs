@@ -61,9 +61,13 @@ public static class PlanUsageReader
     // Reset the log rather than let it grow forever if this starts happening every poll (every 4s).
     private const long MaxDiagnosticLogBytes = 256 * 1024;
 
-    /// <summary>Returns the most recent weekly usage percentage (0-100), or null if the file is missing, empty,
-    /// or every sample in it has no "sd" figure yet.</summary>
-    public static int? ReadLatestWeeklyPercent()
+    /// <summary>SampledAt is when the desktop app recorded the reading - as of 2026-10-01 it no longer samples
+    /// every ~15 minutes (apparently only at launch), so this can be hours or days old and the HUD needs to say so.</summary>
+    public readonly record struct WeeklyUsage(int Percent, DateTimeOffset? SampledAt);
+
+    /// <summary>Returns the most recent weekly usage reading (percentage 0-100 plus when it was sampled), or null
+    /// if the file is missing, empty, or every sample in it has no "sd" figure yet.</summary>
+    public static WeeklyUsage? ReadLatestWeeklyUsage()
     {
         // Deliberately no File.Exists() pre-check: it swallows EVERY exception (permission issues, sharing
         // violations, transient I/O errors - anything, not just "genuinely missing") and reports them all as
@@ -95,7 +99,7 @@ public static class PlanUsageReader
             JsonElement sample = samples[i];
             if (sample.TryGetProperty("u", out JsonElement usage) && usage.TryGetProperty("sd", out JsonElement sd))
             {
-                return sd.GetInt32();
+                return new WeeklyUsage(sd.GetInt32(), SampleTime(sample));
             }
         }
 
@@ -113,7 +117,12 @@ public static class PlanUsageReader
         return null;
     }
 
-    public readonly record struct FiveHourUsage(int Percent, DateTimeOffset? ResetAt);
+    public readonly record struct FiveHourUsage(int Percent, DateTimeOffset? ResetAt, DateTimeOffset? SampledAt);
+
+    private static DateTimeOffset? SampleTime(JsonElement sample) =>
+        sample.TryGetProperty("t", out JsonElement t) && t.TryGetInt64(out long ms)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(ms)
+            : null;
 
     /// <summary>Returns the current rolling-5-hour usage percentage plus an estimate of when it resets, or null
     /// if the file has no "fh" figure at all yet. Unlike the weekly figure, no reset timestamp is stored in the
@@ -173,7 +182,7 @@ public static class PlanUsageReader
             resetAt = null;
         }
 
-        return new FiveHourUsage(percent.Value, resetAt);
+        return new FiveHourUsage(percent.Value, resetAt, SampleTime(samples[percentIndex]));
     }
 
     private static FileStream? TryOpen()
@@ -215,7 +224,7 @@ public static class PlanUsageReader
     private static string Truncate(string s, int maxLen) => s.Length <= maxLen ? s : s[..maxLen] + "...";
 
     /// <summary>Best-effort append to %AppData%\ClaudeUsageHUD\weekly-diagnostic.log - covers every "why did
-    /// ReadLatestWeeklyPercent return null" branch above, since the very first attempt at diagnosing this
+    /// ReadLatestWeeklyUsage return null" branch above, since the very first attempt at diagnosing this
     /// (2026-09-08) only instrumented the last branch and the very next recurrence (2026-09-09) turned out to
     /// hit one of the earlier ones instead, leaving no trace of which.</summary>
     internal static void LogDiagnostic(string message)

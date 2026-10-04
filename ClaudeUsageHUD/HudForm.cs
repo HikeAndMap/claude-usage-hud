@@ -218,16 +218,17 @@ public sealed class HudForm : Form
     {
         try
         {
-            int? weeklyPct = PlanUsageReader.ReadLatestWeeklyPercent();
-            if (weeklyPct == null)
+            PlanUsageReader.WeeklyUsage? usage = PlanUsageReader.ReadLatestWeeklyUsage();
+            if (usage == null)
             {
                 _weeklyLabel.Text = "Weekly: n/a";
                 _weeklyLabel.ForeColor = Color.Gray;
                 return false;
             }
 
-            _weeklyLabel.Text = $"Weekly: {weeklyPct}%";
-            _weeklyLabel.ForeColor = ColorForPercent(weeklyPct.Value);
+            string? age = StaleAgeSuffix(usage.Value.SampledAt);
+            _weeklyLabel.Text = $"Weekly: {usage.Value.Percent}%{age}";
+            _weeklyLabel.ForeColor = age == null ? ColorForPercent(usage.Value.Percent) : Color.Gray;
             return true;
         }
         catch (Exception ex)
@@ -253,11 +254,12 @@ public sealed class HudForm : Form
                 return false;
             }
 
-            string resetSuffix = usage.Value.ResetAt is { } resetAt
+            string? age = StaleAgeSuffix(usage.Value.SampledAt);
+            string suffix = age ?? (usage.Value.ResetAt is { } resetAt
                 ? $" ({FormatRemaining(resetAt - DateTimeOffset.UtcNow)})"
-                : "";
-            _fiveHourLabel.Text = $"5h: {usage.Value.Percent}%{resetSuffix}";
-            _fiveHourLabel.ForeColor = ColorForPercent(usage.Value.Percent);
+                : "");
+            _fiveHourLabel.Text = $"5h: {usage.Value.Percent}%{suffix}";
+            _fiveHourLabel.ForeColor = age == null ? ColorForPercent(usage.Value.Percent) : Color.Gray;
             return true;
         }
         catch (Exception ex)
@@ -335,6 +337,20 @@ public sealed class HudForm : Form
         {
             Application.Exit();
         }
+    }
+
+    /// <summary>Returns e.g. " (5h old)" when a plan-usage sample is old enough that showing it as a live
+    /// reading would mislead, else null. Claude desktop stopped sampling every ~15 minutes around 2026-10-01
+    /// (apparently only at launch now), so the file's last entry is routinely hours or days stale; the
+    /// threshold is two missed 15-minute samples' worth, so it never flags while the old cadence is intact.</summary>
+    private static string? StaleAgeSuffix(DateTimeOffset? sampledAt)
+    {
+        if (sampledAt == null) return null;
+        TimeSpan age = DateTimeOffset.UtcNow - sampledAt.Value;
+        if (age < TimeSpan.FromMinutes(30)) return null;
+        return age.TotalHours < 1 ? $" ({(int)age.TotalMinutes}m old)"
+            : age.TotalHours < 48 ? $" ({(int)age.TotalHours}h old)"
+            : $" ({(int)age.TotalDays}d old)";
     }
 
     private static string FormatRemaining(TimeSpan remaining)
