@@ -19,8 +19,11 @@ namespace ClaudeUsageHUD;
 /// </summary>
 public static class HudLogin
 {
-    private const string AuthorizeEndpoint = "https://claude.ai/oauth/authorize";
-    private const string TokenEndpoint = "https://console.anthropic.com/v1/oauth/token";
+    // Verified 2026-10-04 against the constants inside the bundled claude.exe 2.1.286 (CLAUDE_AI_AUTHORIZE_URL /
+    // TOKEN_URL / CLIENT_ID). The older claude.ai/oauth/authorize + console.anthropic.com/v1/oauth/token pair
+    // from community tooling is stale - the authorize page answered it with "invalid request format".
+    private const string AuthorizeEndpoint = "https://claude.com/cai/oauth/authorize";
+    private const string TokenEndpoint = "https://platform.claude.com/v1/oauth/token";
     private const string ClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
     private const string Scopes = "user:profile user:inference";
 
@@ -79,7 +82,6 @@ public static class HudLogin
 
             string url = AuthorizeEndpoint + "?" + string.Join("&", new (string, string)[]
             {
-                ("code", "true"),
                 ("client_id", ClientId),
                 ("response_type", "code"),
                 ("redirect_uri", redirect),
