@@ -80,8 +80,11 @@ public static class HudLogin
             listener.Prefixes.Add($"http://localhost:{port}/");
             listener.Start();
 
+            // Claude Code (g5n() in claude.exe 2.1.286) sends code=true even with a loopback redirect, and the
+            // authorize page rejects the request as "invalid request format" without it.
             string url = AuthorizeEndpoint + "?" + string.Join("&", new (string, string)[]
             {
+                ("code", "true"),
                 ("client_id", ClientId),
                 ("response_type", "code"),
                 ("redirect_uri", redirect),
