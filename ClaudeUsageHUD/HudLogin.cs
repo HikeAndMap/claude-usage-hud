@@ -53,16 +53,34 @@ public static class HudLogin
             return tokens.AccessToken;
         }
 
+        _grantRejected = false;
         Tokens? renewed = await ExchangeAsync(new
         {
             grant_type = "refresh_token",
             refresh_token = tokens.RefreshToken,
             client_id = ClientId,
         }, tokens.RefreshToken, "refresh");
-        if (renewed == null) return null;
+        if (renewed == null)
+        {
+            if (_grantRejected)
+            {
+                // The refresh token is dead for good ("invalid_grant ... Refresh token expired", seen 2026-11-04
+                // after ~a month of working renewals and a two-day gap with no successful refresh) - retrying
+                // every minute can't help and only spams the log, so drop it and ask the user to sign in again.
+                SignOut();
+                SignInExpired?.Invoke();
+            }
+            return null;
+        }
         Save(renewed);
         return renewed.AccessToken;
     }
+
+    /// <summary>Raised (on the UI thread) when the stored login can no longer be renewed and was discarded -
+    /// only a fresh browser sign-in fixes it, so the tray offers one.</summary>
+    public static event Action? SignInExpired;
+
+    private static bool _grantRejected;
 
     /// <summary>Opens the browser for the user to authorize, catches the redirect on a loopback port, and stores
     /// the resulting tokens. Returns null on success, else a short reason to show the user.</summary>
@@ -145,6 +163,7 @@ public static class HudLogin
             {
                 // Error bodies describe the problem; they don't echo the credentials we sent.
                 PlanUsageReader.LogDiagnostic($"hud {what}: HTTP {(int)response.StatusCode}; body={(text.Length <= 300 ? text : text[..300] + "...")}");
+                _grantRejected = text.Contains("invalid_grant", StringComparison.Ordinal);
                 return null;
             }
 

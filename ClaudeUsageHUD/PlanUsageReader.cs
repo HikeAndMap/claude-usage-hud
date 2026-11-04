@@ -12,7 +12,9 @@ namespace ClaudeUsageHUD;
 /// </summary>
 public static class PlanUsageReader
 {
-    private static readonly string FilePath = ResolveFilePath();
+    // Not readonly: re-resolved when the file goes missing (see TryOpen), because Claude desktop has moved this
+    // file before (MSIX redirect -> real package path -> Claude-Data, all by 2026-11-04) and the HUD runs for weeks.
+    private static string FilePath = ResolveFilePath();
 
     /// <summary>
     /// Claude desktop is installed as an MSIX-packaged app, so %AppData%\Roaming\Claude isn't a real folder -
@@ -32,25 +34,39 @@ public static class PlanUsageReader
         string traditional = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Claude", "plan-usage-history.json");
 
+        // Claude desktop 4.x (seen 2026-11-04) keeps its data in %LocalAppData%\Claude-Data\claude_<hash>\ - a real
+        // folder - and left only an empty marker file at the old MSIX package path, so the old location now
+        // "exists" as a folder without the file. Check every known location and take the most recently written
+        // file, so a stale leftover in an old location can never beat the live one.
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var candidates = new List<string>();
         try
         {
-            string packagesRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+            string claudeData = Path.Combine(localAppData, "Claude-Data");
+            if (Directory.Exists(claudeData))
+            {
+                foreach (string dir in Directory.EnumerateDirectories(claudeData, "claude_*"))
+                {
+                    candidates.Add(Path.Combine(dir, "plan-usage-history.json"));
+                }
+            }
+
+            string packagesRoot = Path.Combine(localAppData, "Packages");
             if (Directory.Exists(packagesRoot))
             {
                 foreach (string packageDir in Directory.EnumerateDirectories(packagesRoot, "Claude_*"))
                 {
-                    string candidate = Path.Combine(packageDir, "LocalCache", "Roaming", "Claude", "plan-usage-history.json");
-                    if (File.Exists(candidate)) return candidate;
+                    candidates.Add(Path.Combine(packageDir, "LocalCache", "Roaming", "Claude", "plan-usage-history.json"));
                 }
             }
         }
         catch (Exception)
         {
-            // Best effort - fall back to the traditional (possibly redirected) path below.
+            // Best effort - fall through to whatever candidates were found, else the traditional path below.
         }
 
-        return traditional;
+        string? newest = candidates.Where(File.Exists).OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault();
+        return newest ?? traditional;
     }
 
     // Where we dump forensic detail on the "not found" path below - kept tiny and separate from the main
@@ -187,6 +203,8 @@ public static class PlanUsageReader
 
     private static FileStream? TryOpen()
     {
+        if (!File.Exists(FilePath)) FilePath = ResolveFilePath();
+
         try
         {
             return new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);

@@ -56,6 +56,14 @@ public sealed class TrayAppContext : ApplicationContext
         };
         _trayIcon.DoubleClick += (s, e) => ToggleHud();
 
+        // Only a fresh browser sign-in can recover a dead refresh token, so say so instead of silently showing
+        // "n/a" - and let a click on the balloon start the sign-in directly.
+        HudLogin.SignInExpired += () =>
+        {
+            _trayIcon.ShowBalloonTip(15000, "Claude Usage HUD", "Live usage sign-in expired - click here to sign in again.", ToolTipIcon.Warning);
+        };
+        _trayIcon.BalloonTipClicked += async (s, e) => await SignInForLiveUsage();
+
         _hud.Show();
     }
 
