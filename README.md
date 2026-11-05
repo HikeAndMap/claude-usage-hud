@@ -81,7 +81,10 @@ dotnet run --project ClaudeUsageHUD
 Or build and run the .exe directly from `ClaudeUsageHUD\bin\Debug\net10.0-windows\`.
 
 - Tray icon (small orange circle, "C") → right-click for the menu: Show/Hide HUD,
-  Set context window size, Sign in for live usage, Restart, Exit.
+  Set context window size, Sign in for live usage, Check for updates, Restart, Exit.
+  "Check for updates..." compares your version with the latest GitHub release and,
+  if you confirm, downloads it (verified against the size and SHA-256 GitHub
+  reports), swaps it in for the running exe, and restarts.
 - The HUD itself is a small borderless panel showing three lines - context-window
   usage, weekly plan usage, and rolling 5-hour usage - draggable by clicking
   anywhere on it; its position is remembered (`%AppData%\ClaudeUsageHUD\settings.json`)

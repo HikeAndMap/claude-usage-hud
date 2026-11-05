@@ -12,10 +12,12 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly HudForm _hud;
     private readonly HudSettings _settings;
     private bool _signingIn;
+    private bool _updating;
 
     public TrayAppContext()
     {
         _settings = HudSettings.Load();
+        UpdateChecker.CleanUpAfterUpdate();
         _hud = new HudForm(_settings);
 
         var menu = new ContextMenuStrip();
@@ -30,6 +32,10 @@ public sealed class TrayAppContext : ApplicationContext
         ToolStripMenuItem signInItem = new("Sign in for live usage...");
         signInItem.Click += async (s, e) => await SignInForLiveUsage();
         menu.Items.Add(signInItem);
+
+        ToolStripMenuItem updateItem = new("Check for updates...");
+        updateItem.Click += async (s, e) => await CheckForUpdates();
+        menu.Items.Add(updateItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -102,6 +108,41 @@ public sealed class TrayAppContext : ApplicationContext
         finally
         {
             _signingIn = false;
+        }
+    }
+
+    private async Task CheckForUpdates()
+    {
+        if (_updating) return;
+        _updating = true;
+        const string Title = "Claude Usage HUD - updates";
+        try
+        {
+            UpdateChecker.ReleaseInfo latest = await UpdateChecker.GetLatestAsync();
+            Version current = UpdateChecker.Current;
+            if (latest.Version <= current)
+            {
+                MessageBox.Show($"You're up to date (v{current}).", Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string notes = latest.Notes.Length > 600 ? latest.Notes[..600] + "..." : latest.Notes;
+            DialogResult answer = MessageBox.Show(
+                $"{latest.Tag} is available (you have v{current}).\n\n{notes}\n\nDownload and install it now? The HUD will restart.",
+                Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return;
+
+            _trayIcon.ShowBalloonTip(5000, "Claude Usage HUD", $"Downloading {latest.Tag}...", ToolTipIcon.Info);
+            await UpdateChecker.InstallAsync(latest);
+            RestartApp();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Update failed: {ex.Message}", Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            _updating = false;
         }
     }
 
