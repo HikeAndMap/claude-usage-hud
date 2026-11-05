@@ -79,12 +79,15 @@ dotnet run --project ClaudeUsageHUD
 Or build and run the .exe directly from `ClaudeUsageHUD\bin\Debug\net10.0-windows\`.
 
 - Tray icon (small orange circle, "C") → right-click for the menu: Show/Hide HUD,
-  Set context window size, Sign in for live usage, Set usage token (a manual
-  fallback), Restart, Exit.
+  Set context window size, Sign in for live usage, Restart, Exit.
 - The HUD itself is a small borderless panel showing three lines - context-window
   usage, weekly plan usage, and rolling 5-hour usage - draggable by clicking
   anywhere on it; its position is remembered (`%AppData%\ClaudeUsageHUD\settings.json`)
   between launches, including across multiple monitors.
+- While you're not signed in for live usage, a blue "Click to sign in for live
+  usage" line appears at the bottom of the HUD; it disappears once you are. If a
+  saved sign-in stops working (its refresh token expired), the HUD discards it, shows
+  a tray notification, and brings that line back.
 - If weekly/5h usage ever gets stuck reading (rare, and generally self-heals
   within a few minutes on its own), the tray menu's "Restart" is the fastest fix.
 

@@ -5,7 +5,7 @@ namespace ClaudeUsageHUD;
 
 /// <summary>
 /// Fetches live weekly / 5-hour plan usage from Anthropic's OAuth usage endpoint with a token the user pasted
-/// in (see UsageTokenStore). Exists because Claude desktop stopped recording samples to plan-usage-history.json
+/// in (see HudLogin). Exists because Claude desktop stopped recording samples to plan-usage-history.json
 /// around 2026-10-01 (see PlanUsageReader), leaving that file hours or days stale while the desktop app's own
 /// Usage page keeps updating - so it must be getting the numbers from this kind of live call. The endpoint is
 /// undocumented: response shape (five_hour / seven_day, each {utilization 0-100, resets_at ISO-8601}) is from
@@ -37,7 +37,7 @@ public static class OAuthUsageClient
             {
                 PlanUsageReader.LogDiagnostic($"oauth usage: HTTP {(int)response.StatusCode} {response.ReasonPhrase}; body={Truncate(body, 300)}");
                 return (null, response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden
-                    ? $"token rejected (HTTP {(int)response.StatusCode}) - set a new one"
+                    ? $"token rejected (HTTP {(int)response.StatusCode}) - sign in again"
                     : $"HTTP {(int)response.StatusCode}");
             }
 

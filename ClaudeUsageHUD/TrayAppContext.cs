@@ -11,6 +11,7 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly NotifyIcon _trayIcon;
     private readonly HudForm _hud;
     private readonly HudSettings _settings;
+    private bool _signingIn;
 
     public TrayAppContext()
     {
@@ -29,10 +30,6 @@ public sealed class TrayAppContext : ApplicationContext
         ToolStripMenuItem signInItem = new("Sign in for live usage...");
         signInItem.Click += async (s, e) => await SignInForLiveUsage();
         menu.Items.Add(signInItem);
-
-        ToolStripMenuItem setTokenItem = new("Set usage token...");
-        setTokenItem.Click += async (s, e) => await PromptForUsageToken();
-        menu.Items.Add(setTokenItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -63,6 +60,12 @@ public sealed class TrayAppContext : ApplicationContext
             _trayIcon.ShowBalloonTip(15000, "Claude Usage HUD", "Live usage sign-in expired - click here to sign in again.", ToolTipIcon.Warning);
         };
         _trayIcon.BalloonTipClicked += async (s, e) => await SignInForLiveUsage();
+        _hud.SignInRequested += async () => await SignInForLiveUsage();
+
+        // The pasted-token fallback was removed (a setup-token can't read usage); don't leave its encrypted
+        // secret lying around.
+        try { File.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ClaudeUsageHUD", "usage-token.bin")); }
+        catch (Exception) { /* best effort */ }
 
         _hud.Show();
     }
@@ -82,23 +85,24 @@ public sealed class TrayAppContext : ApplicationContext
 
     private async Task SignInForLiveUsage()
     {
-        string? error = await HudLogin.SignInAsync();
-        if (error != null)
+        // The hint, the balloon and the menu item can all trigger this - a second click while the browser flow
+        // is still waiting would start a second loopback listener for no reason.
+        if (_signingIn) return;
+        _signingIn = true;
+        try
         {
-            MessageBox.Show($"Sign-in failed: {error}", "Claude Usage HUD", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            string? error = await HudLogin.SignInAsync();
+            if (error != null)
+            {
+                MessageBox.Show($"Sign-in failed: {error}", "Claude Usage HUD", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            await _hud.RefreshLiveUsageAsync();
         }
-        await _hud.RefreshLiveUsageAsync();
-    }
-
-    private async Task PromptForUsageToken()
-    {
-        using var prompt = new UsageTokenPrompt(UsageTokenStore.Load() != null);
-        if (prompt.ShowDialog() != DialogResult.OK) return;
-
-        if (prompt.EnteredToken == null) UsageTokenStore.Clear();
-        else UsageTokenStore.Save(prompt.EnteredToken);
-        await _hud.RefreshLiveUsageAsync();
+        finally
+        {
+            _signingIn = false;
+        }
     }
 
     private void RestartApp()

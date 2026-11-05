@@ -48,6 +48,14 @@ public sealed class HudForm : Form
     private const int LivePollIntervalMs = 60_000;
     private readonly System.Windows.Forms.Timer _liveTimer;
     private readonly ToolTip _statusTip = new();
+    private const int SignInHintHeight = 18; // keep in step with the _signInHint label's own Height
+    private readonly Label _signInHint;
+    private bool _signInHintApplied;
+    private bool _signInHintShown;
+
+    /// <summary>Raised when the user clicks the "sign in" hint on the HUD.</summary>
+    public event Action? SignInRequested;
+
     private OAuthUsageClient.Reading? _live;
     private string? _liveError;
     private bool _liveFetching;
@@ -89,7 +97,24 @@ public sealed class HudForm : Form
             Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
             Text = "5h: ...",
         };
+        // Shown only while there's no HUD sign-in (see UpdateSignInHint): without one the weekly/5h lines can only
+        // come from the stale file fallback, and a tray balloon alone proved too easy to miss. A Bottom-docked
+        // label added after the Fill one so the Fill label gets whatever space is left.
+        _signInHint = new Label
+        {
+            Dock = DockStyle.Bottom,
+            Height = SignInHintHeight,
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = Color.FromArgb(110, 170, 255),
+            Font = new Font("Segoe UI", 8f, FontStyle.Underline),
+            Cursor = Cursors.Hand,
+            Text = "Click to sign in for live usage",
+            Visible = false,
+        };
+        _signInHint.Click += (s, e) => SignInRequested?.Invoke();
+
         Controls.Add(_fiveHourLabel);
+        Controls.Add(_signInHint);
         Controls.Add(_weeklyLabel);
         Controls.Add(_label);
 
@@ -227,20 +252,20 @@ public sealed class HudForm : Form
         CheckSelfHeal(weeklyOk || fiveHourOk);
     }
 
-    /// <summary>Fetches live usage if a token is saved, then re-renders the plan lines. Safe to call any time
-    /// (tray menu calls it right after a token change); overlapping calls are dropped.</summary>
+    /// <summary>Fetches live usage if the HUD is signed in, then re-renders the plan lines. Safe to call any
+    /// time (tray menu calls it right after a sign-in); overlapping calls are dropped.</summary>
     public async Task RefreshLiveUsageAsync()
     {
         if (_liveFetching) return;
         _liveFetching = true;
         try
         {
-            (string? token, string source) = await UsageTokenStore.ResolveAsync();
+            string? token = await HudLogin.GetAccessTokenAsync();
             if (token == null)
             {
                 _live = null;
                 _liveError = null;
-                _statusTip.SetToolTip(_weeklyLabel, "Live usage: not signed in (tray menu > Sign in for live usage...)");
+                _statusTip.SetToolTip(_weeklyLabel, "Live usage: not signed in (click the hint, or tray menu > Sign in for live usage...)");
             }
             else
             {
@@ -248,10 +273,11 @@ public sealed class HudForm : Form
                 if (reading != null) _live = reading;
                 _liveError = error;
                 _statusTip.SetToolTip(_weeklyLabel, error == null
-                    ? $"Live usage OK via {source} (fetched {DateTime.Now:HH:mm:ss})"
-                    : $"Live usage failed via {source}: {error}");
+                    ? $"Live usage OK (fetched {DateTime.Now:HH:mm:ss})"
+                    : $"Live usage failed: {error}");
             }
             _statusTip.SetToolTip(_fiveHourLabel, _statusTip.GetToolTip(_weeklyLabel));
+            UpdateSignInHint();
             RefreshWeekly();
             RefreshFiveHour();
         }
@@ -259,6 +285,24 @@ public sealed class HudForm : Form
         {
             _liveFetching = false;
         }
+    }
+
+    /// <summary>Shows the clickable "sign in" line only while there's no HUD sign-in. The window grows
+    /// downward on first apply (a saved position already accounts for the hint, since position is saved while
+    /// it's showing); later toggles keep the bottom edge fixed so the HUD doesn't creep up the screen.</summary>
+    private void UpdateSignInHint()
+    {
+        // Own flag rather than the Visible getter: a child's Visible reads false until the whole form is shown,
+        // which is exactly when the first call happens (inside Load).
+        bool show = !HudLogin.IsSignedIn;
+        if (_signInHintApplied && show == _signInHintShown) return;
+
+        int delta = show == _signInHintShown ? 0 : (show ? SignInHintHeight : -SignInHintHeight);
+        _signInHint.Visible = show;
+        _signInHintShown = show;
+        Height += delta;
+        if (_signInHintApplied) Top -= delta;
+        _signInHintApplied = true;
     }
 
     private OAuthUsageClient.Reading? FreshLive() =>
