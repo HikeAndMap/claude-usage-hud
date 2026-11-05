@@ -1,0 +1,70 @@
+name: Release
+
+# Keeps the downloadable build (the README's releases/latest link) in step with main: every push that touches
+# the app builds the same self-contained single-file win-x64 exe used for manual releases and publishes it as a
+# new release. Old releases are kept on purpose (traceability); only "latest" moves.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ClaudeUsageHUD/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release at a time, so two quick pushes can't compute the same version number.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Bump this by hand (e.g. to 0.1.0) for a bigger milestone - the last number then restarts at 0. Within a
+  # base, each release is the count of existing tags with that prefix, so it only ever counts up.
+  VERSION_BASE: '0.0.3'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags + history, for the version number and the release notes
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Compute version and previous release tag
+        id: ver
+        shell: bash
+        run: |
+          n=$(git tag --list "v${VERSION_BASE}.*" | wc -l | tr -d ' ')
+          echo "version=${VERSION_BASE}.${n}" >> "$GITHUB_OUTPUT"
+          echo "prev=$(git tag --list 'v*' --sort=-version:refname | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        shell: bash
+        run: >
+          dotnet publish ClaudeUsageHUD/ClaudeUsageHUD.csproj -c Release -r win-x64 --self-contained
+          -o publish -p:PublishSingleFile=true -p:Version=${{ steps.ver.outputs.version }}
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          prev='${{ steps.ver.outputs.prev }}'
+          if [ -n "$prev" ]; then range="$prev..HEAD"; else range="HEAD"; fi
+          {
+            echo "Changes since ${prev:-the start}:"
+            echo
+            git log "$range" --no-merges --pretty='- %s' -n 40
+          } > notes.md
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "v${{ steps.ver.outputs.version }}" publish/ClaudeUsageHUD.exe
+          --title "v${{ steps.ver.outputs.version }}" --notes-file notes.md --target "${{ github.sha }}" --latest

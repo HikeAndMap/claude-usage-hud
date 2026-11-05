@@ -10,7 +10,9 @@ reimplementation in C#/.NET WinForms - not a port of that codebase.
 
 **[⬇ Download the latest release](https://github.com/HikeAndMap/claude-usage-hud/releases/latest)**
 — grab `ClaudeUsageHUD.exe` and run it directly. It's a self-contained build, so
-no .NET runtime install is required.
+no .NET runtime install is required. Releases are built and published automatically
+by GitHub Actions (`.github/workflows/release.yml`) on every push to `main` that
+changes the app, so "latest" always matches the current code.
 
 ## How it works
 
